@@ -1,43 +1,103 @@
-import { NextRequest, NextResponse } from "next/server";
+import crypto from "node:crypto";
 
-import { query } from "@/lib/db";
-import { ensureSchema } from "@/lib/db/schema";
-import { parseWebhookEvent, verifyWebhookSignature } from "@/lib/payments/lemonsqueezy";
+import { NextResponse } from "next/server";
+
+import { upsertSubscription } from "@/lib/database";
 
 export const runtime = "nodejs";
 
-export async function POST(request: NextRequest): Promise<NextResponse> {
-  const signature = request.headers.get("x-signature");
-  const rawBody = await request.text();
+function secureCompare(a: string, b: string) {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
 
-  if (!verifyWebhookSignature(rawBody, signature)) {
-    return NextResponse.json({ error: "Invalid Lemon Squeezy signature." }, { status: 401 });
+  if (left.length !== right.length) {
+    return false;
   }
 
-  const parsedBody = JSON.parse(rawBody) as unknown;
-  const event = parseWebhookEvent(parsedBody);
+  return crypto.timingSafeEqual(left, right);
+}
 
-  if (!event) {
-    return NextResponse.json({ received: true, ignored: true });
+function getEventStatus(eventName: string, rawStatus: unknown) {
+  const status = typeof rawStatus === "string" ? rawStatus.toLowerCase() : "";
+  const event = eventName.toLowerCase();
+
+  if (
+    event.includes("cancel") ||
+    event.includes("expired") ||
+    event.includes("paused") ||
+    ["cancelled", "expired", "paused", "past_due", "unpaid"].includes(status)
+  ) {
+    return "inactive";
   }
 
-  await ensureSchema();
+  return "active";
+}
 
-  await query(
-    `
-      INSERT INTO subscriptions (email, owner_key, plan, status, lemonsqueezy_customer_id, lemonsqueezy_order_id)
-      VALUES ($1, $2, $3, $4, $5, $6)
-      ON CONFLICT (email)
-      DO UPDATE SET
-        owner_key = COALESCE(EXCLUDED.owner_key, subscriptions.owner_key),
-        plan = EXCLUDED.plan,
-        status = EXCLUDED.status,
-        lemonsqueezy_customer_id = COALESCE(EXCLUDED.lemonsqueezy_customer_id, subscriptions.lemonsqueezy_customer_id),
-        lemonsqueezy_order_id = COALESCE(EXCLUDED.lemonsqueezy_order_id, subscriptions.lemonsqueezy_order_id),
-        updated_at = NOW()
-    `,
-    [event.email, event.ownerKey, event.plan, event.status, event.customerId, event.orderId]
-  );
+function getString(value: unknown) {
+  return typeof value === "string" ? value : null;
+}
 
-  return NextResponse.json({ received: true });
+export async function POST(request: Request) {
+  try {
+    const secret = process.env.LEMON_SQUEEZY_WEBHOOK_SECRET;
+    if (!secret) {
+      return NextResponse.json({ error: "Webhook secret not configured." }, { status: 500 });
+    }
+
+    const rawBody = await request.text();
+    const receivedSignature = request.headers.get("x-signature") || "";
+    const normalizedReceived = receivedSignature.replace(/^sha256=/i, "");
+    const generated = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
+
+    if (!normalizedReceived || !secureCompare(normalizedReceived, generated)) {
+      return NextResponse.json({ error: "Invalid webhook signature." }, { status: 401 });
+    }
+
+    const payload = JSON.parse(rawBody) as {
+      meta?: {
+        event_name?: string;
+      };
+      data?: {
+        id?: string;
+        attributes?: Record<string, unknown>;
+      };
+    };
+
+    const eventName = payload.meta?.event_name || "";
+    const attributes = payload.data?.attributes || {};
+
+    const email =
+      getString(attributes.user_email) ||
+      getString(attributes.customer_email) ||
+      getString(attributes.email) ||
+      getString(attributes.customer_name);
+
+    if (!email || !email.includes("@")) {
+      return NextResponse.json({ error: "Webhook payload missing customer email." }, { status: 400 });
+    }
+
+    const orderId =
+      getString(attributes.order_id) ||
+      getString(attributes.identifier) ||
+      getString(payload.data?.id) ||
+      null;
+
+    const plan =
+      getString(attributes.variant_name) ||
+      getString(attributes.product_name) ||
+      getString(attributes.plan_name) ||
+      null;
+
+    await upsertSubscription({
+      email,
+      orderId,
+      status: getEventStatus(eventName, attributes.status),
+      plan,
+    });
+
+    return NextResponse.json({ received: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Webhook processing failed.";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }

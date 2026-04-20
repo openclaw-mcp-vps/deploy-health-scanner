@@ -1,124 +1,76 @@
 import crypto from "node:crypto";
 
-import { NextResponse } from "next/server";
-
-import type { SubscriptionPlan } from "@/lib/db/schema";
-
 export const ACCESS_COOKIE_NAME = "dhs_access";
-export const OWNER_COOKIE_NAME = "dhs_owner";
-const COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
+const ACCESS_TTL_SECONDS = 60 * 60 * 24 * 30;
 
-type CookieRead = {
-  get(name: string): { value: string } | undefined;
+type AccessPayload = {
+  email: string;
+  exp: number;
 };
 
-export interface AccessPayload {
-  ownerKey: string;
-  plan: SubscriptionPlan;
-  expiresAt: number;
+function getSigningSecret() {
+  return process.env.COOKIE_SIGNING_SECRET || "dev-change-me";
 }
 
-function getCookieSecret(): string {
-  return process.env.AUTH_COOKIE_SECRET ?? "development-insecure-secret-change-me";
+function toBase64Url(value: string) {
+  return Buffer.from(value, "utf8").toString("base64url");
 }
 
-function sign(value: string): string {
-  return crypto.createHmac("sha256", getCookieSecret()).update(value).digest("hex");
+function fromBase64Url(value: string) {
+  return Buffer.from(value, "base64url").toString("utf8");
 }
 
-function safeEquals(a: string, b: string): boolean {
-  const aBuffer = Buffer.from(a);
-  const bBuffer = Buffer.from(b);
+function sign(input: string) {
+  return crypto.createHmac("sha256", getSigningSecret()).update(input).digest("base64url");
+}
 
-  if (aBuffer.length !== bBuffer.length) {
-    return false;
+export function createAccessToken(email: string) {
+  const payload: AccessPayload = {
+    email,
+    exp: Math.floor(Date.now() / 1000) + ACCESS_TTL_SECONDS,
+  };
+
+  const encoded = toBase64Url(JSON.stringify(payload));
+  const signature = sign(encoded);
+  return `${encoded}.${signature}`;
+}
+
+export function verifyAccessToken(token: string | undefined | null) {
+  if (!token || !token.includes(".")) {
+    return null;
   }
 
-  return crypto.timingSafeEqual(aBuffer, bBuffer);
-}
+  const [encoded, providedSignature] = token.split(".");
+  const expectedSignature = sign(encoded);
 
-export function generateOwnerKey(): string {
-  return crypto.randomUUID();
-}
+  const a = Buffer.from(providedSignature);
+  const b = Buffer.from(expectedSignature);
 
-export function createAccessToken(ownerKey: string, plan: SubscriptionPlan): string {
-  const expiresAt = Date.now() + COOKIE_MAX_AGE_SECONDS * 1000;
-  const payload = `${ownerKey}|${plan}|${expiresAt}`;
-  const signature = sign(payload);
-  return Buffer.from(`${payload}|${signature}`).toString("base64url");
-}
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    return null;
+  }
 
-export function parseAccessToken(token: string): AccessPayload | null {
   try {
-    const decoded = Buffer.from(token, "base64url").toString("utf8");
-    const [ownerKey, planRaw, expiresAtRaw, signature] = decoded.split("|");
-
-    if (!ownerKey || !planRaw || !expiresAtRaw || !signature) {
+    const payload = JSON.parse(fromBase64Url(encoded)) as AccessPayload;
+    if (!payload.email || payload.exp < Math.floor(Date.now() / 1000)) {
       return null;
     }
 
-    if (planRaw !== "starter" && planRaw !== "unlimited") {
-      return null;
-    }
-
-    const payload = `${ownerKey}|${planRaw}|${expiresAtRaw}`;
-    if (!safeEquals(sign(payload), signature)) {
-      return null;
-    }
-
-    const expiresAt = Number(expiresAtRaw);
-    if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) {
-      return null;
-    }
-
-    return {
-      ownerKey,
-      plan: planRaw,
-      expiresAt,
-    };
+    return payload;
   } catch {
     return null;
   }
 }
 
-export function getAccessFromCookieStore(cookieStore: CookieRead): AccessPayload | null {
-  const accessToken = cookieStore.get(ACCESS_COOKIE_NAME)?.value;
-  if (!accessToken) {
-    return null;
-  }
-
-  return parseAccessToken(accessToken);
+export function getAccessEmailFromCookies(cookieStore: CookieStoreLike) {
+  const token = cookieStore.get(ACCESS_COOKIE_NAME)?.value;
+  const payload = verifyAccessToken(token);
+  return payload?.email ?? null;
 }
 
-export function getOwnerKeyFromCookieStore(cookieStore: CookieRead): string | null {
-  return cookieStore.get(OWNER_COOKIE_NAME)?.value ?? null;
+export function getAccessCookieMaxAgeSeconds() {
+  return ACCESS_TTL_SECONDS;
 }
-
-export function setOwnerCookie(response: NextResponse, ownerKey: string): void {
-  response.cookies.set({
-    name: OWNER_COOKIE_NAME,
-    value: ownerKey,
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: COOKIE_MAX_AGE_SECONDS,
-  });
-}
-
-export function setAccessCookies(response: NextResponse, ownerKey: string, plan: SubscriptionPlan): void {
-  setOwnerCookie(response, ownerKey);
-  response.cookies.set({
-    name: ACCESS_COOKIE_NAME,
-    value: createAccessToken(ownerKey, plan),
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: COOKIE_MAX_AGE_SECONDS,
-  });
-}
-
-export function clearAccessCookies(response: NextResponse): void {
-  response.cookies.delete(ACCESS_COOKIE_NAME);
-}
+type CookieStoreLike = {
+  get: (name: string) => { value: string } | undefined;
+};

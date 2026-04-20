@@ -1,146 +1,131 @@
 "use client";
 
-import { useState } from "react";
-import { Link2, Loader2, Plus, RefreshCw } from "lucide-react";
-import { getTRPCClient } from "@/lib/trpc/client";
+import { type FormEvent, useState } from "react";
+
+import { Loader2, PlusCircle } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 type UrlFormProps = {
-  onRefresh: () => Promise<void>;
+  onCreated: () => void;
 };
 
-export function UrlForm({ onRefresh }: UrlFormProps) {
-  const trpc = getTRPCClient();
-
+export function UrlForm({ onCreated }: UrlFormProps) {
   const [url, setUrl] = useState("");
-  const [vercelToken, setVercelToken] = useState("");
-  const [netlifyToken, setNetlifyToken] = useState("");
-  const [busyAction, setBusyAction] = useState<"none" | "add" | "vercel" | "netlify">("none");
-  const [message, setMessage] = useState<string>("");
+  const [displayName, setDisplayName] = useState("");
+  const [alertEmail, setAlertEmail] = useState("");
+  const [slackWebhookUrl, setSlackWebhookUrl] = useState("");
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
-  async function addUrl() {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage(null);
+    setError(null);
+
     if (!url.trim()) {
-      setMessage("Add a valid URL first.");
+      setError("Please enter a URL to monitor.");
       return;
     }
 
-    setBusyAction("add");
-    setMessage("");
+    setIsSaving(true);
 
     try {
-      await trpc.monitors.add.mutate({ url: url.trim() });
+      const response = await fetch("/api/checks", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          url,
+          displayName,
+          alertEmail,
+          slackWebhookUrl,
+        }),
+      });
+
+      const payload = (await response.json()) as { error?: string };
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Unable to add this URL.");
+      }
+
+      setMessage("URL added and first health check completed.");
       setUrl("");
-      setMessage("URL added and queued for scanning.");
-      await onRefresh();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to add URL.");
+      setDisplayName("");
+      if (!alertEmail.trim()) {
+        setAlertEmail("");
+      }
+      if (!slackWebhookUrl.trim()) {
+        setSlackWebhookUrl("");
+      }
+      onCreated();
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "Failed to create monitoring target.");
     } finally {
-      setBusyAction("none");
-    }
-  }
-
-  async function importFromVercel() {
-    setBusyAction("vercel");
-    setMessage("");
-
-    try {
-      const result = await trpc.monitors.importFromVercel.mutate({ token: vercelToken.trim() || undefined });
-      setMessage(`Imported ${result.imported} of ${result.discovered} Vercel project URLs.`);
-      await onRefresh();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to import from Vercel.");
-    } finally {
-      setBusyAction("none");
-    }
-  }
-
-  async function importFromNetlify() {
-    setBusyAction("netlify");
-    setMessage("");
-
-    try {
-      const result = await trpc.monitors.importFromNetlify.mutate({ token: netlifyToken.trim() || undefined });
-      setMessage(`Imported ${result.imported} of ${result.discovered} Netlify site URLs.`);
-      await onRefresh();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to import from Netlify.");
-    } finally {
-      setBusyAction("none");
+      setIsSaving(false);
     }
   }
 
   return (
-    <section className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5">
-      <div className="flex items-center gap-3">
-        <div className="rounded-md border border-[var(--border)] bg-black/10 p-2">
-          <Link2 className="size-4 text-[var(--muted)]" />
-        </div>
-        <h2 className="text-lg font-semibold">Add URLs or Sync Deployments</h2>
+    <form onSubmit={handleSubmit} className="grid gap-3 rounded-xl border border-slate-800 bg-slate-900/60 p-5">
+      <div>
+        <h2 className="text-lg font-semibold text-slate-50">Add deployment URL</h2>
+        <p className="text-sm text-slate-400">Checks start immediately and continue every 5 minutes.</p>
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto]">
-        <input
+      <div className="grid gap-3 md:grid-cols-2">
+        <Input
           value={url}
           onChange={(event) => setUrl(event.target.value)}
-          type="url"
-          placeholder="https://your-app.com"
-          className="w-full rounded-lg border border-[var(--border)] bg-[#0f141a] px-4 py-3 text-sm outline-none ring-[var(--primary)]/60 transition focus:ring"
+          placeholder="https://your-project.com"
+          autoComplete="off"
+          required
         />
-        <button
-          onClick={addUrl}
-          disabled={busyAction !== "none"}
-          className="inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-3 text-sm font-semibold text-white hover:bg-[var(--primary-soft)] disabled:cursor-not-allowed disabled:opacity-60"
-          type="button"
-        >
-          {busyAction === "add" ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
-          Add URL
-        </button>
+        <Input
+          value={displayName}
+          onChange={(event) => setDisplayName(event.target.value)}
+          placeholder="Project label (optional)"
+          autoComplete="off"
+        />
       </div>
 
-      <div className="mt-5 grid gap-4 md:grid-cols-2">
-        <div className="rounded-lg border border-[var(--border)] bg-black/10 p-4">
-          <h3 className="font-medium">Import from Vercel</h3>
-          <p className="mt-1 text-xs text-[var(--muted)]">Uses `VERCEL_API_TOKEN` if field is empty.</p>
-          <input
-            value={vercelToken}
-            onChange={(event) => setVercelToken(event.target.value)}
-            type="password"
-            placeholder="Optional Vercel token"
-            className="mt-3 w-full rounded-lg border border-[var(--border)] bg-[#0f141a] px-3 py-2 text-sm outline-none ring-[var(--primary)]/60 focus:ring"
-          />
-          <button
-            type="button"
-            onClick={importFromVercel}
-            disabled={busyAction !== "none"}
-            className="mt-3 inline-flex items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium hover:border-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {busyAction === "vercel" ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-            Sync Vercel Projects
-          </button>
-        </div>
-
-        <div className="rounded-lg border border-[var(--border)] bg-black/10 p-4">
-          <h3 className="font-medium">Import from Netlify</h3>
-          <p className="mt-1 text-xs text-[var(--muted)]">Uses `NETLIFY_API_TOKEN` if field is empty.</p>
-          <input
-            value={netlifyToken}
-            onChange={(event) => setNetlifyToken(event.target.value)}
-            type="password"
-            placeholder="Optional Netlify token"
-            className="mt-3 w-full rounded-lg border border-[var(--border)] bg-[#0f141a] px-3 py-2 text-sm outline-none ring-[var(--primary)]/60 focus:ring"
-          />
-          <button
-            type="button"
-            onClick={importFromNetlify}
-            disabled={busyAction !== "none"}
-            className="mt-3 inline-flex items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium hover:border-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {busyAction === "netlify" ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-            Sync Netlify Sites
-          </button>
-        </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        <Input
+          value={alertEmail}
+          onChange={(event) => setAlertEmail(event.target.value)}
+          placeholder="alerts@yourdomain.com (optional)"
+          type="email"
+          autoComplete="off"
+        />
+        <Input
+          value={slackWebhookUrl}
+          onChange={(event) => setSlackWebhookUrl(event.target.value)}
+          placeholder="Slack webhook URL (optional)"
+          autoComplete="off"
+        />
       </div>
 
-      {message ? <p className="mt-4 text-sm text-[var(--muted)]">{message}</p> : null}
-    </section>
+      {error ? <p className="text-sm text-red-400">{error}</p> : null}
+      {message ? <p className="text-sm text-emerald-300">{message}</p> : null}
+
+      <div className="flex justify-end">
+        <Button type="submit" disabled={isSaving} className="min-w-44">
+          {isSaving ? (
+            <>
+              <Loader2 className="size-4 animate-spin" />
+              Running check...
+            </>
+          ) : (
+            <>
+              <PlusCircle className="size-4" />
+              Add URL
+            </>
+          )}
+        </Button>
+      </div>
+    </form>
   );
 }

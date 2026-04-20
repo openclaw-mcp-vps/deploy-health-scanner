@@ -2,6 +2,6 @@ import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-export function GET() {
+export async function GET() {
   return NextResponse.json({ status: "ok" });
 }

@@ -11,24 +11,23 @@ NICHE: monitoring
 PRICE: $$12/mo for 10 URLs, $39/mo unlimited/mo
 
 ARCHITECTURE SPEC:
-Next.js app with PostgreSQL for URL monitoring, background jobs via cron/queue system for health checks, and webhook integrations for alerts. Uses Lemon Squeezy for subscriptions and tRPC for type-safe API calls.
+Next.js app with PostgreSQL backend that runs scheduled checks on user URLs every 5 minutes via cron jobs. Uses external APIs for SSL validation and performance testing, with real-time dashboard showing status history and configurable alerts via email/Slack webhooks.
 
 PLANNED FILES:
 - app/page.tsx
 - app/dashboard/page.tsx
-- app/api/webhooks/lemon-squeezy/route.ts
+- app/api/checks/route.ts
+- app/api/webhooks/lemonsqueezy/route.ts
 - app/api/cron/health-check/route.ts
-- lib/db/schema.ts
-- lib/monitoring/health-checker.ts
-- lib/integrations/vercel.ts
-- lib/integrations/netlify.ts
-- lib/notifications/email.ts
-- lib/notifications/slack.ts
+- lib/database.ts
+- lib/health-checker.ts
+- lib/notifications.ts
 - components/url-form.tsx
-- components/dashboard-table.tsx
-- components/pricing-cards.tsx
+- components/status-dashboard.tsx
+- components/pricing-table.tsx
+- prisma/schema.prisma
 
-DEPENDENCIES: next, tailwindcss, drizzle-orm, postgres, @trpc/server, @trpc/client, @lemonsqueezy/lemonsqueezy.js, resend, puppeteer, zod, lucide-react, recharts, node-cron
+DEPENDENCIES: next, tailwindcss, prisma, @prisma/client, postgres, @lemonsqueezy/lemonsqueezy.js, node-cron, axios, nodemailer, @slack/web-api, ssl-checker, lighthouse, cheerio, recharts, lucide-react
 
 REQUIREMENTS:
 - Next.js 15 with App Router (app/ directory)
