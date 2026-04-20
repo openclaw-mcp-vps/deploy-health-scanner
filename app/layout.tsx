@@ -1,52 +1,25 @@
 import type { Metadata } from "next";
 import Script from "next/script";
-import { IBM_Plex_Mono, Space_Grotesk } from "next/font/google";
-
 import "./globals.css";
 
-const spaceGrotesk = Space_Grotesk({
-  subsets: ["latin"],
-  variable: "--font-space-grotesk",
-});
-
-const plexMono = IBM_Plex_Mono({
-  subsets: ["latin"],
-  variable: "--font-plex-mono",
-  weight: ["400", "500", "600"],
-});
-
-const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://deployhealthscanner.com";
-
 export const metadata: Metadata = {
-  metadataBase: new URL(appUrl),
-  title: {
-    default: "Deploy Health Scanner | Uptime, SSL, SEO & Performance",
-    template: "%s | Deploy Health Scanner",
-  },
+  metadataBase: new URL("https://deployhealthscanner.com"),
+  title: "Deploy Health Scanner | Uptime, SSL, SEO, and Speed Monitoring",
   description:
-    "Continuous uptime, SSL expiry, SEO tag, and page speed checks every 5 minutes for indie founders managing production projects.",
+    "Deploy Health Scanner checks uptime, SSL expiry, SEO metadata, and page speed every 5 minutes so founders catch issues before customers do.",
   openGraph: {
     title: "Deploy Health Scanner",
     description:
-      "One place for uptime, SSL, SEO, and speed checks across every deployed project.",
-    url: appUrl,
+      "Continuous uptime + SSL + SEO + load-speed checks across all deployed projects.",
+    url: "https://deployhealthscanner.com",
     siteName: "Deploy Health Scanner",
-    images: [
-      {
-        url: "/og.svg",
-        width: 1200,
-        height: 630,
-        alt: "Deploy Health Scanner dashboard preview",
-      },
-    ],
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
     title: "Deploy Health Scanner",
     description:
-      "Monitor uptime, SSL, SEO, and performance on every URL you ship.",
-    images: ["/og.svg"],
+      "Monitor uptime, SSL expiry, SEO tags, and speed in one dashboard. Built for indie founders.",
   },
   robots: {
     index: true,
@@ -56,8 +29,8 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className="dark">
-      <body className={`${spaceGrotesk.variable} ${plexMono.variable} antialiased`}>
+    <html lang="en" suppressHydrationWarning>
+      <body className="bg-[var(--background)] text-[var(--text)] antialiased">
         <Script src="https://app.lemonsqueezy.com/js/lemon.js" strategy="afterInteractive" />
         {children}
       </body>

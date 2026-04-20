@@ -1,33 +1,43 @@
-import Bull from "bull";
+import {
+  getQueuedJobs,
+  markJobDone,
+  markJobFailed,
+  markJobRunning,
+  queueDueMonitors,
+  queueMonitorCheck,
+} from "@/lib/db/queries";
+import { runHealthCheckForMonitor } from "@/lib/monitoring/health-checker";
 
-export interface MonitorQueueJob {
-  monitorId: string;
-  ownerKey: string;
-  url: string;
-  name: string;
+export async function enqueueDueHealthChecks(intervalMinutes = 5): Promise<number> {
+  return queueDueMonitors(intervalMinutes);
 }
 
-const redisUrl = process.env.REDIS_URL ?? "redis://127.0.0.1:6379";
-
-declare global {
-  // eslint-disable-next-line no-var
-  var __deployHealthQueue: Bull.Queue<MonitorQueueJob> | undefined;
+export async function enqueueHealthCheckNow(monitorId: string): Promise<void> {
+  await queueMonitorCheck(monitorId, new Date());
 }
 
-export const monitorQueue =
-  global.__deployHealthQueue ??
-  new Bull<MonitorQueueJob>("monitor-checks", redisUrl, {
-    defaultJobOptions: {
-      attempts: 3,
-      backoff: {
-        type: "exponential",
-        delay: 4_000,
-      },
-      removeOnComplete: 500,
-      removeOnFail: 1_000,
-    },
-  });
+export async function processHealthCheckQueue(limit = 20): Promise<{
+  processed: number;
+  failed: number;
+}> {
+  const jobs = await getQueuedJobs(limit);
+  let processed = 0;
+  let failed = 0;
 
-if (process.env.NODE_ENV !== "production") {
-  global.__deployHealthQueue = monitorQueue;
+  for (const job of jobs) {
+    try {
+      await markJobRunning(job.id);
+      await runHealthCheckForMonitor(job.monitor_id);
+      await markJobDone(job.id);
+      processed += 1;
+    } catch (error) {
+      failed += 1;
+      await markJobFailed(job.id, error instanceof Error ? error.message : "Unknown health check error");
+    }
+  }
+
+  return {
+    processed,
+    failed,
+  };
 }

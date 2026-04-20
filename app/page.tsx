@@ -1,181 +1,166 @@
 import Link from "next/link";
-import { Activity, BellRing, Gauge, ShieldCheck } from "lucide-react";
-
-import { Pricing } from "@/components/pricing";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Activity, Bell, Gauge, ShieldCheck, Tags } from "lucide-react";
+import { PricingCards } from "@/components/pricing-cards";
 
 const problems = [
   {
-    title: "Status checks miss real launch risks",
-    body: "A 200 response can still hide expired SSL, missing metadata, or painfully slow pages that hurt conversion.",
+    title: "Status checks miss hidden failures",
+    body: "A homepage can return 200 while your SEO tags disappear, SSL cert nears expiration, or load time doubles after deployment.",
   },
   {
-    title: "Alerts are scattered across tools",
-    body: "You should not need one tool for uptime, another for SEO checks, and another for performance alerts.",
+    title: "Fragmented tooling wastes time",
+    body: "Founders jump between uptime dashboards, SSL reminders, and SEO audits instead of getting one actionable incident timeline.",
   },
   {
-    title: "Monitoring costs jump too fast",
-    body: "Founders with 5-50 projects are often stuck between shallow cheap tools and expensive enterprise suites.",
+    title: "Deploy velocity introduces risk",
+    body: "Shipping quickly across multiple projects means breakage often lands in production before anyone notices.",
   },
 ];
 
 const features = [
   {
-    title: "Uptime checks every 5 minutes",
-    description: "Catch outages quickly with HTTP status verification and response time trend tracking.",
     icon: Activity,
+    title: "Uptime and HTTP health",
+    body: "Checks every 5 minutes with incident + recovery detection and a rolling history of failures.",
   },
   {
-    title: "SSL expiry intelligence",
-    description: "Know exactly when certificates are expiring and get alerted before browsers start blocking users.",
     icon: ShieldCheck,
+    title: "SSL expiry tracking",
+    body: "Certificate validity is tracked continuously so you catch expiring certs before traffic gets blocked.",
   },
   {
-    title: "SEO meta watchdog",
-    description: "Monitor title tags, descriptions, and indexing-critical metadata after every deployment.",
+    icon: Tags,
+    title: "SEO metadata validation",
+    body: "Title, description, canonical, robots, and Open Graph fields are scored and diffed over time.",
+  },
+  {
     icon: Gauge,
+    title: "Page speed trend monitoring",
+    body: "Measures load timing on every scan so performance regressions surface instantly.",
   },
   {
-    title: "Email + Slack alerting",
-    description: "Route incidents to where your team already works so downtime never sits unseen.",
-    icon: BellRing,
+    icon: Bell,
+    title: "Email and Slack alerts",
+    body: "Receive alerts on incidents, SSL risk, SEO regressions, and recovery events in your team channels.",
   },
 ];
 
-const faq = [
+const faqs = [
   {
-    q: "How often are checks performed?",
-    a: "Every monitor is scheduled every 5 minutes. You can also trigger manual checks from the dashboard when you ship changes.",
+    question: "How often are checks run?",
+    answer: "Every monitored URL is queued every 5 minutes, with manual scans available from the dashboard when you need immediate validation.",
   },
   {
-    q: "Do I need to install an agent on my servers?",
-    a: "No. Deploy Health Scanner works externally against your URLs, so it covers Vercel, Netlify, static sites, and custom hosts equally.",
+    question: "Can I import projects instead of adding URLs one by one?",
+    answer: "Yes. Connect Vercel or Netlify API tokens and Deploy Health Scanner imports active project URLs automatically.",
   },
   {
-    q: "Can I alert multiple channels?",
-    a: "Yes. Configure email and Slack simultaneously so incidents reach both your inbox and your team channel.",
+    question: "How does paid access work?",
+    answer: "After Lemon Squeezy checkout, your order and email are validated and a secure access cookie unlocks the dashboard.",
   },
   {
-    q: "What happens after I purchase?",
-    a: "You get instant dashboard access through a secure purchase cookie and can start adding monitored URLs right away.",
+    question: "Who is this built for?",
+    answer: "Indie founders and small teams managing 5-50 deployed apps that need one reliable health view for uptime, SSL, SEO, and speed.",
   },
 ];
 
-export default function LandingPage() {
+export default function HomePage() {
   return (
-    <main className="min-h-screen text-slate-100">
-      <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-6">
-        <Link href="/" className="text-lg font-semibold tracking-tight">
-          Deploy Health Scanner
-        </Link>
-        <div className="flex items-center gap-3">
-          <a href="#pricing" className="text-sm text-slate-300 hover:text-cyan-300">
+    <main className="mx-auto max-w-6xl px-5 pb-20 pt-8 sm:px-8 lg:px-10">
+      <header className="flex items-center justify-between rounded-xl border border-[var(--border)] bg-black/20 px-4 py-3">
+        <p className="text-sm font-medium tracking-wide">Deploy Health Scanner</p>
+        <nav className="flex items-center gap-4 text-sm text-[var(--muted)]">
+          <a href="#pricing" className="hover:text-[var(--text)]">
             Pricing
           </a>
-          <Link href="/dashboard">
-            <Button size="sm">Open Dashboard</Button>
+          <a href="#faq" className="hover:text-[var(--text)]">
+            FAQ
+          </a>
+          <Link href="/dashboard" className="rounded-md border border-[var(--border)] px-3 py-1.5 text-[var(--text)] hover:border-[var(--primary)]">
+            Dashboard
           </Link>
-        </div>
+        </nav>
       </header>
 
-      <section className="mx-auto grid max-w-6xl gap-10 px-6 pb-16 pt-8 md:grid-cols-2 md:items-center md:pt-20">
-        <div>
-          <p className="mb-4 text-xs font-semibold uppercase tracking-[0.25em] text-cyan-400">Monitoring for deployed projects</p>
-          <h1 className="text-4xl font-semibold leading-tight md:text-5xl">
-            Continuous uptime, SSL, SEO, and speed checks for every URL you ship
+      <section className="relative mt-10 overflow-hidden rounded-3xl border border-[var(--border)] bg-gradient-to-br from-[#14253f] via-[#0f1722] to-[#0d1117] p-8 sm:p-12">
+        <div className="max-w-3xl">
+          <p className="text-xs uppercase tracking-[0.24em] text-blue-200/80">Continuous uptime + SSL + SEO + speed</p>
+          <h1 className="mt-4 text-4xl font-semibold leading-tight sm:text-5xl">
+            Deploy Health Scanner keeps every deployed project trustworthy around the clock.
           </h1>
-          <p className="mt-5 max-w-2xl text-lg text-slate-300">
-            Paste URLs or connect your deploy workflow and get one clear signal on site health. Built for indie founders managing
-            5-50 projects who need more than ping checks.
+          <p className="mt-6 text-base text-[var(--text)]/80 sm:text-lg">
+            Paste URLs or connect Vercel and Netlify. We run health checks every 5 minutes for HTTP status, SSL
+            expiry, critical SEO tags, and load speed, then alert you through email or Slack before customers notice.
           </p>
-          <div className="mt-8 flex flex-wrap gap-3">
-            <Link href="/dashboard">
-              <Button size="lg">Start Monitoring</Button>
+          <div className="mt-8 flex flex-wrap items-center gap-3">
+            <Link
+              href="/dashboard"
+              className="rounded-lg bg-[var(--primary)] px-5 py-3 text-sm font-semibold text-white hover:bg-[var(--primary-soft)]"
+            >
+              Open Dashboard
             </Link>
-            <a href="#pricing">
-              <Button size="lg" variant="secondary">
-                See Pricing
-              </Button>
+            <a
+              href="#pricing"
+              className="rounded-lg border border-[var(--border)] px-5 py-3 text-sm font-semibold text-[var(--text)] hover:border-[var(--primary)]"
+            >
+              View Pricing
             </a>
           </div>
-          <p className="mt-4 text-sm text-slate-400">From $12/month. No install. 5-minute checks by default.</p>
+          <p className="mt-6 text-sm text-[var(--muted)]">Positioned between UptimeRobot and Checkly for founders who need broader checks without enterprise overhead.</p>
         </div>
-        <Card className="border-cyan-500/20 bg-slate-900/90">
-          <CardHeader>
-            <CardTitle>Live monitor snapshot</CardTitle>
-            <CardDescription>One dashboard shows technical and growth-critical issues side by side.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <div className="rounded-md border border-emerald-500/20 bg-emerald-500/10 p-3 text-emerald-200">
-              api.exampleapp.com is up (HTTP 200), SSL valid for 43 days.
-            </div>
-            <div className="rounded-md border border-amber-500/20 bg-amber-500/10 p-3 text-amber-200">
-              www.exampleapp.com meta description changed after latest deployment.
-            </div>
-            <div className="rounded-md border border-rose-500/20 bg-rose-500/10 p-3 text-rose-200">
-              docs.exampleapp.com response time increased from 420ms to 1280ms.
-            </div>
-          </CardContent>
-        </Card>
       </section>
 
-      <section className="mx-auto max-w-6xl px-6 py-12">
-        <h2 className="mb-8 text-3xl font-semibold">Why existing tools miss what founders care about</h2>
-        <div className="grid gap-4 md:grid-cols-3">
-          {problems.map((problem) => (
-            <Card key={problem.title}>
-              <CardHeader>
-                <CardTitle className="text-xl">{problem.title}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-slate-300">{problem.body}</p>
-              </CardContent>
-            </Card>
+      <section className="mt-12 grid gap-4 md:grid-cols-3">
+        {problems.map((problem) => (
+          <article key={problem.title} className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
+            <h2 className="text-lg font-semibold">{problem.title}</h2>
+            <p className="mt-2 text-sm text-[var(--muted)]">{problem.body}</p>
+          </article>
+        ))}
+      </section>
+
+      <section className="mt-16">
+        <h2 className="text-2xl font-semibold sm:text-3xl">One monitor stack for real production risk</h2>
+        <p className="mt-2 max-w-3xl text-sm text-[var(--muted)] sm:text-base">
+          Deploy Health Scanner merges availability, trust signals, and performance checks so you ship faster without
+          blind spots.
+        </p>
+
+        <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {features.map((feature) => {
+            const Icon = feature.icon;
+            return (
+              <article key={feature.title} className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
+                <Icon className="size-5 text-[var(--primary)]" />
+                <h3 className="mt-3 text-lg font-semibold">{feature.title}</h3>
+                <p className="mt-2 text-sm text-[var(--muted)]">{feature.body}</p>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+
+      <section id="pricing" className="mt-16">
+        <h2 className="text-2xl font-semibold sm:text-3xl">Simple pricing for builders shipping fast</h2>
+        <p className="mt-2 text-sm text-[var(--muted)] sm:text-base">
+          Choose a plan based on project count. Every plan includes uptime, SSL, SEO, speed checks, and alerting.
+        </p>
+        <div className="mt-6">
+          <PricingCards />
+        </div>
+      </section>
+
+      <section id="faq" className="mt-16">
+        <h2 className="text-2xl font-semibold sm:text-3xl">Frequently asked questions</h2>
+        <div className="mt-5 grid gap-4">
+          {faqs.map((faq) => (
+            <article key={faq.question} className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
+              <h3 className="text-lg font-medium">{faq.question}</h3>
+              <p className="mt-2 text-sm text-[var(--muted)]">{faq.answer}</p>
+            </article>
           ))}
         </div>
       </section>
-
-      <section className="mx-auto max-w-6xl px-6 py-16">
-        <h2 className="mb-8 text-3xl font-semibold">Everything you need to keep deployed sites healthy</h2>
-        <div className="grid gap-4 md:grid-cols-2">
-          {features.map((feature) => (
-            <Card key={feature.title} className="border-slate-700/70">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-3 text-xl">
-                  <feature.icon className="h-5 w-5 text-cyan-300" />
-                  {feature.title}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-slate-300">{feature.description}</p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </section>
-
-      <Pricing />
-
-      <section className="mx-auto max-w-5xl px-6 py-20">
-        <h2 className="mb-8 text-center text-3xl font-semibold">Frequently asked questions</h2>
-        <div className="space-y-4">
-          {faq.map((item) => (
-            <Card key={item.q}>
-              <CardHeader>
-                <CardTitle className="text-lg">{item.q}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-slate-300">{item.a}</p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </section>
-
-      <footer className="border-t border-slate-800/80 px-6 py-10 text-center text-sm text-slate-400">
-        Deploy Health Scanner helps indie teams prevent silent production failures before users notice.
-      </footer>
     </main>
   );
 }

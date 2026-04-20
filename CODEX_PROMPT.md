@@ -11,25 +11,24 @@ NICHE: monitoring
 PRICE: $$12/mo for 10 URLs, $39/mo unlimited/mo
 
 ARCHITECTURE SPEC:
-Next.js SaaS with cron-based monitoring workers that check URLs every 5 minutes for uptime, SSL, SEO, and performance. Uses PostgreSQL for data storage, Redis for job queuing, and integrates with email/Slack for alerts.
+Next.js app with PostgreSQL for URL monitoring, background jobs via cron/queue system for health checks, and webhook integrations for alerts. Uses Lemon Squeezy for subscriptions and tRPC for type-safe API calls.
 
 PLANNED FILES:
 - app/page.tsx
 - app/dashboard/page.tsx
-- app/api/monitors/route.ts
-- app/api/webhooks/lemonsqueezy/route.ts
-- app/api/cron/check-monitors/route.ts
-- lib/monitoring/checker.ts
-- lib/monitoring/alerts.ts
-- lib/auth.ts
+- app/api/webhooks/lemon-squeezy/route.ts
+- app/api/cron/health-check/route.ts
 - lib/db/schema.ts
-- lib/payments/lemonsqueezy.ts
-- components/dashboard/monitor-list.tsx
-- components/dashboard/add-monitor.tsx
-- components/pricing.tsx
-- workers/monitor-worker.ts
+- lib/monitoring/health-checker.ts
+- lib/integrations/vercel.ts
+- lib/integrations/netlify.ts
+- lib/notifications/email.ts
+- lib/notifications/slack.ts
+- components/url-form.tsx
+- components/dashboard-table.tsx
+- components/pricing-cards.tsx
 
-DEPENDENCIES: next, tailwindcss, prisma, @prisma/client, next-auth, @auth/prisma-adapter, redis, bull, axios, cheerio, lighthouse, node-cron, @lemonsqueezy/lemonsqueezy.js, resend, @slack/web-api, zod, react-hook-form, recharts
+DEPENDENCIES: next, tailwindcss, drizzle-orm, postgres, @trpc/server, @trpc/client, @lemonsqueezy/lemonsqueezy.js, resend, puppeteer, zod, lucide-react, recharts, node-cron
 
 REQUIREMENTS:
 - Next.js 15 with App Router (app/ directory)
