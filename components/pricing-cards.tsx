@@ -1,76 +1,109 @@
-import Link from "next/link";
+import { CheckCircle2, ShieldCheck, TrendingUp, Zap } from "lucide-react";
 
-function appendQuery(base: string, key: string, value: string): string {
-  const separator = base.includes("?") ? "&" : "?";
-  return `${base}${separator}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
-}
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle
+} from "@/components/ui/card";
 
-function getCheckoutBaseUrl(): string {
-  const productId = process.env.NEXT_PUBLIC_LEMON_SQUEEZY_PRODUCT_ID;
-  const storeId = process.env.NEXT_PUBLIC_LEMON_SQUEEZY_STORE_ID;
+const starterFeatures = [
+  "Monitor up to 10 URLs every 5 minutes",
+  "Checks HTTP status, SSL validity, and SEO tags",
+  "Email + Slack webhook alerts",
+  "Manual on-demand checks from dashboard"
+];
 
-  if (!productId || !storeId) {
-    return "/dashboard";
-  }
+const growthFeatures = [
+  "Unlimited URLs with the same 5-minute interval",
+  "Priority alert delivery and unlimited Slack channels",
+  "Longer check history for trend analysis",
+  "Best fit for agencies and multi-product founders"
+];
 
-  return `https://app.lemonsqueezy.com/checkout/buy/${productId}?store=${storeId}`;
-}
-
-export function PricingCards() {
-  const checkoutBase = getCheckoutBaseUrl();
-  const starterCheckout = appendQuery(checkoutBase, "checkout[custom][plan]", "starter-12");
-  const unlimitedCheckout = appendQuery(checkoutBase, "checkout[custom][plan]", "unlimited-39");
-
+export default function PricingCards() {
   return (
-    <div className="grid gap-6 md:grid-cols-2">
-      <article className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-6">
-        <p className="text-sm uppercase tracking-widest text-[var(--muted)]">Starter</p>
-        <h3 className="mt-2 text-3xl font-semibold">$12/mo</h3>
-        <p className="mt-2 text-sm text-[var(--muted)]">Monitor 10 URLs with every check enabled.</p>
-        <ul className="mt-6 space-y-3 text-sm text-[var(--text)]/90">
-          <li>5-minute HTTP uptime checks</li>
-          <li>SSL expiry countdown with alerts</li>
-          <li>SEO tag health score and snapshots</li>
-          <li>Speed trend history and regressions</li>
-          <li>Email + Slack alert delivery</li>
-        </ul>
-        <a
-          href={starterCheckout}
-          className="lemonsqueezy-button mt-8 inline-flex w-full items-center justify-center rounded-lg bg-[var(--primary)] px-4 py-3 font-semibold text-white hover:bg-[var(--primary-soft)]"
-        >
-          Start Starter Plan
-        </a>
-      </article>
+    <section id="pricing" className="mx-auto w-full max-w-6xl px-4 py-16 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-2xl text-center">
+        <p className="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-4 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-emerald-300">
+          <Zap className="h-3.5 w-3.5" />
+          Straightforward Pricing
+        </p>
+        <h2 className="text-3xl font-bold text-white sm:text-4xl">Pay only for what you monitor</h2>
+        <p className="mt-4 text-base text-slate-300">
+          Between UptimeRobot and Checkly in price, but tailored to deployed product health.
+        </p>
+      </div>
 
-      <article className="relative rounded-2xl border border-[var(--primary)] bg-gradient-to-b from-[#1a2332] to-[var(--card)] p-6 shadow-lg shadow-blue-950/30">
-        <span className="absolute right-4 top-4 rounded-full border border-blue-300/20 bg-blue-500/20 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-blue-200">
-          Most Popular
-        </span>
-        <p className="text-sm uppercase tracking-widest text-[var(--muted)]">Unlimited</p>
-        <h3 className="mt-2 text-3xl font-semibold">$39/mo</h3>
-        <p className="mt-2 text-sm text-[var(--muted)]">Unlimited projects for agencies and serial builders.</p>
-        <ul className="mt-6 space-y-3 text-sm text-[var(--text)]/90">
-          <li>Unlimited URLs + grouped environments</li>
-          <li>Priority queue for near-real-time checks</li>
-          <li>Vercel + Netlify auto import</li>
-          <li>Incident timeline with recovery notices</li>
-          <li>Webhook alert fan-out to team channels</li>
-        </ul>
-        <a
-          href={unlimitedCheckout}
-          className="lemonsqueezy-button mt-8 inline-flex w-full items-center justify-center rounded-lg bg-[var(--primary)] px-4 py-3 font-semibold text-white hover:bg-[var(--primary-soft)]"
-        >
-          Go Unlimited
-        </a>
-      </article>
+      <div className="mt-10 grid gap-6 lg:grid-cols-2">
+        <Card className="border-slate-800 bg-slate-950/70">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-2xl">
+              <ShieldCheck className="h-5 w-5 text-emerald-400" />
+              Starter
+            </CardTitle>
+            <CardDescription className="text-slate-300">
+              Ideal for indie founders with a focused product stack.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="mb-6 flex items-baseline gap-2">
+              <span className="text-4xl font-bold text-white">$12</span>
+              <span className="text-slate-400">/ month</span>
+            </div>
+            <ul className="space-y-3 text-sm text-slate-200">
+              {starterFeatures.map((feature) => (
+                <li key={feature} className="flex items-start gap-2">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 flex-none text-emerald-400" />
+                  <span>{feature}</span>
+                </li>
+              ))}
+            </ul>
+            <a
+              href={process.env.NEXT_PUBLIC_STRIPE_PAYMENT_LINK}
+              className="mt-8 inline-flex w-full items-center justify-center rounded-md bg-emerald-500 px-4 py-2 font-semibold text-black transition hover:bg-emerald-400"
+            >
+              Buy Starter
+            </a>
+          </CardContent>
+        </Card>
 
-      <p className="md:col-span-2 text-sm text-[var(--muted)]">
-        Checkout opens in Lemon Squeezy overlay. After payment, use your order number and purchase email to unlock
-        <Link href="/dashboard" className="ml-1 text-[var(--primary)] underline underline-offset-4">
-          the dashboard
-        </Link>
-        .
-      </p>
-    </div>
+        <Card className="border-emerald-400/40 bg-gradient-to-b from-emerald-500/10 to-slate-950/90">
+          <CardHeader>
+            <p className="mb-2 inline-flex w-fit rounded-full border border-emerald-400/40 bg-emerald-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-300">
+              Most Popular
+            </p>
+            <CardTitle className="flex items-center gap-2 text-2xl">
+              <TrendingUp className="h-5 w-5 text-emerald-400" />
+              Growth
+            </CardTitle>
+            <CardDescription className="text-slate-300">
+              Built for teams managing many domains and client deployments.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="mb-6 flex items-baseline gap-2">
+              <span className="text-4xl font-bold text-white">$39</span>
+              <span className="text-slate-400">/ month</span>
+            </div>
+            <ul className="space-y-3 text-sm text-slate-200">
+              {growthFeatures.map((feature) => (
+                <li key={feature} className="flex items-start gap-2">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 flex-none text-emerald-400" />
+                  <span>{feature}</span>
+                </li>
+              ))}
+            </ul>
+            <a
+              href={process.env.NEXT_PUBLIC_STRIPE_PAYMENT_LINK}
+              className="mt-8 inline-flex w-full items-center justify-center rounded-md bg-emerald-500 px-4 py-2 font-semibold text-black transition hover:bg-emerald-400"
+            >
+              Buy Growth
+            </a>
+          </CardContent>
+        </Card>
+      </div>
+    </section>
   );
 }

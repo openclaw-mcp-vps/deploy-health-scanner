@@ -1,131 +1,174 @@
 "use client";
 
-import { type FormEvent, useState } from "react";
-
+import { useState } from "react";
 import { Loader2, PlusCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
-type UrlFormProps = {
-  onCreated: () => void;
-};
+interface UrlFormProps {
+  userEmail: string;
+  onCreated: () => Promise<void> | void;
+}
 
-export function UrlForm({ onCreated }: UrlFormProps) {
+export default function UrlForm({ userEmail, onCreated }: UrlFormProps) {
+  const [name, setName] = useState("");
   const [url, setUrl] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [alertEmail, setAlertEmail] = useState("");
-  const [slackWebhookUrl, setSlackWebhookUrl] = useState("");
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
+  const [sslDaysThreshold, setSslDaysThreshold] = useState("14");
+  const [alertEmail, setAlertEmail] = useState(userEmail);
+  const [slackWebhook, setSlackWebhook] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setMessage(null);
-    setError(null);
+    setError("");
+    setSuccess("");
 
-    if (!url.trim()) {
-      setError("Please enter a URL to monitor.");
+    if (!name.trim() || !url.trim()) {
+      setError("Project name and URL are required.");
       return;
     }
 
-    setIsSaving(true);
+    setSaving(true);
 
     try {
-      const response = await fetch("/api/checks", {
+      const response = await fetch("/api/monitors", {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
+          "Content-Type": "application/json"
         },
         body: JSON.stringify({
+          email: userEmail,
+          name,
           url,
-          displayName,
+          sslDaysThreshold: Number(sslDaysThreshold),
           alertEmail,
-          slackWebhookUrl,
-        }),
+          slackWebhook
+        })
       });
 
-      const payload = (await response.json()) as { error?: string };
+      const payload = await response.json();
 
       if (!response.ok) {
-        throw new Error(payload.error || "Unable to add this URL.");
+        throw new Error(payload.error || "Failed to add monitor.");
       }
 
-      setMessage("URL added and first health check completed.");
+      setSuccess(`Added ${payload.monitor.name} and ran the first health check.`);
+      setName("");
       setUrl("");
-      setDisplayName("");
-      if (!alertEmail.trim()) {
-        setAlertEmail("");
-      }
-      if (!slackWebhookUrl.trim()) {
-        setSlackWebhookUrl("");
-      }
-      onCreated();
+      setSlackWebhook("");
+
+      await onCreated();
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "Failed to create monitoring target.");
+      setError(submitError instanceof Error ? submitError.message : "Unexpected error.");
     } finally {
-      setIsSaving(false);
+      setSaving(false);
     }
   }
 
   return (
-    <form onSubmit={handleSubmit} className="grid gap-3 rounded-xl border border-slate-800 bg-slate-900/60 p-5">
-      <div>
-        <h2 className="text-lg font-semibold text-slate-50">Add deployment URL</h2>
-        <p className="text-sm text-slate-400">Checks start immediately and continue every 5 minutes.</p>
-      </div>
+    <Card className="border-slate-800 bg-slate-950/60">
+      <CardHeader>
+        <CardTitle className="text-xl">Add a monitored project</CardTitle>
+        <CardDescription>
+          We run checks every 5 minutes for uptime, SSL expiry, SEO metadata, and load speed.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form className="grid gap-4" onSubmit={handleSubmit}>
+          <div className="grid gap-2">
+            <label className="text-sm font-medium text-slate-200" htmlFor="monitor-name">
+              Project name
+            </label>
+            <Input
+              id="monitor-name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Marketing site, API docs, Checkout app"
+            />
+          </div>
 
-      <div className="grid gap-3 md:grid-cols-2">
-        <Input
-          value={url}
-          onChange={(event) => setUrl(event.target.value)}
-          placeholder="https://your-project.com"
-          autoComplete="off"
-          required
-        />
-        <Input
-          value={displayName}
-          onChange={(event) => setDisplayName(event.target.value)}
-          placeholder="Project label (optional)"
-          autoComplete="off"
-        />
-      </div>
+          <div className="grid gap-2">
+            <label className="text-sm font-medium text-slate-200" htmlFor="monitor-url">
+              URL
+            </label>
+            <Input
+              id="monitor-url"
+              value={url}
+              onChange={(event) => setUrl(event.target.value)}
+              placeholder="https://yourdomain.com"
+            />
+          </div>
 
-      <div className="grid gap-3 md:grid-cols-2">
-        <Input
-          value={alertEmail}
-          onChange={(event) => setAlertEmail(event.target.value)}
-          placeholder="alerts@yourdomain.com (optional)"
-          type="email"
-          autoComplete="off"
-        />
-        <Input
-          value={slackWebhookUrl}
-          onChange={(event) => setSlackWebhookUrl(event.target.value)}
-          placeholder="Slack webhook URL (optional)"
-          autoComplete="off"
-        />
-      </div>
+          <div className="grid gap-2 sm:grid-cols-2 sm:gap-4">
+            <div className="grid gap-2">
+              <label
+                className="text-sm font-medium text-slate-200"
+                htmlFor="ssl-days-threshold"
+              >
+                SSL alert threshold (days)
+              </label>
+              <Input
+                id="ssl-days-threshold"
+                type="number"
+                min={1}
+                value={sslDaysThreshold}
+                onChange={(event) => setSslDaysThreshold(event.target.value)}
+              />
+            </div>
 
-      {error ? <p className="text-sm text-red-400">{error}</p> : null}
-      {message ? <p className="text-sm text-emerald-300">{message}</p> : null}
+            <div className="grid gap-2">
+              <label className="text-sm font-medium text-slate-200" htmlFor="alert-email">
+                Alert email
+              </label>
+              <Input
+                id="alert-email"
+                type="email"
+                value={alertEmail}
+                onChange={(event) => setAlertEmail(event.target.value)}
+              />
+            </div>
+          </div>
 
-      <div className="flex justify-end">
-        <Button type="submit" disabled={isSaving} className="min-w-44">
-          {isSaving ? (
-            <>
-              <Loader2 className="size-4 animate-spin" />
-              Running check...
-            </>
-          ) : (
-            <>
-              <PlusCircle className="size-4" />
-              Add URL
-            </>
-          )}
-        </Button>
-      </div>
-    </form>
+          <div className="grid gap-2">
+            <label className="text-sm font-medium text-slate-200" htmlFor="slack-webhook">
+              Slack webhook (optional)
+            </label>
+            <Input
+              id="slack-webhook"
+              value={slackWebhook}
+              onChange={(event) => setSlackWebhook(event.target.value)}
+              placeholder="https://hooks.slack.com/services/..."
+            />
+          </div>
+
+          {error ? <p className="text-sm text-red-400">{error}</p> : null}
+          {success ? <p className="text-sm text-emerald-300">{success}</p> : null}
+
+          <Button type="submit" disabled={saving} className="mt-1 w-full sm:w-fit">
+            {saving ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Saving monitor
+              </>
+            ) : (
+              <>
+                <PlusCircle className="h-4 w-4" />
+                Add monitor
+              </>
+            )}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
   );
 }

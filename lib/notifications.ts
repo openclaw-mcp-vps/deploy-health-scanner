@@ -1,122 +1,163 @@
-import axios from "axios";
 import nodemailer from "nodemailer";
+import { IncomingWebhook } from "@slack/webhook";
 
-import type { AlertChannel, HealthCheckRecord, MonitoredUrl } from "@/lib/database";
+import type {
+  AlertChannelRecord,
+  MonitorRecord,
+  MonitorWithLatest
+} from "@/lib/database";
+import type { MonitorCheckOutcome } from "@/lib/monitoring";
 
-function buildMessage(url: MonitoredUrl, check: HealthCheckRecord, previous: HealthCheckRecord | null) {
-  const subject = `Deploy Health Scanner: ${check.status.toUpperCase()} on ${url.displayName || url.url}`;
+interface AlertPayload {
+  monitor: MonitorRecord | MonitorWithLatest;
+  result: MonitorCheckOutcome;
+  alerts: string[];
+}
+
+function createEmailBody(payload: AlertPayload) {
   const lines = [
-    `URL: ${url.url}`,
-    `Status: ${check.status}`,
-    `HTTP: ${check.httpStatus ?? "n/a"}`,
-    `Response Time: ${check.responseTimeMs ?? "n/a"}ms`,
-    `SSL Days Remaining: ${check.sslDaysRemaining ?? "n/a"}`,
-    `PageSpeed: ${check.pageSpeedScore ?? "n/a"}`,
-    `SEO title/meta: ${check.seoTitle && check.seoDescription ? "ok" : "missing"}`,
-    previous ? `Previous Status: ${previous.status}` : "Previous Status: none",
+    `Monitor: ${payload.monitor.name}`,
+    `URL: ${payload.monitor.url}`,
+    `Checked at: ${new Date(payload.result.checkedAt).toUTCString()}`,
+    `HTTP status: ${payload.result.httpStatus ?? "no response"}`,
+    `SSL valid: ${payload.result.sslValid ? "yes" : "no"}`,
+    `SSL days remaining: ${payload.result.sslDaysRemaining ?? "unknown"}`,
+    `SEO title tag present: ${payload.result.seoTitle ? "yes" : "no"}`,
+    `SEO description present: ${payload.result.seoDescription ? "yes" : "no"}`,
+    `Load time: ${payload.result.loadTimeMs ?? "unknown"} ms`
   ];
 
-  if (check.error) {
-    lines.push(`Error: ${check.error}`);
+  if (payload.result.error) {
+    lines.push(`Error: ${payload.result.error}`);
   }
 
+  lines.push("", "Triggered alerts:");
+
+  for (const alert of payload.alerts) {
+    lines.push(`- ${alert}`);
+  }
+
+  return lines.join("\n");
+}
+
+function createSlackBody(payload: AlertPayload) {
+  const alertBullets = payload.alerts.map((alert) => `• ${alert}`).join("\n");
+
   return {
-    subject,
-    text: lines.join("\n"),
-    markdown: `*${subject}*\n\n${lines.map((line) => `• ${line}`).join("\n")}`,
+    text: `Deploy Health Scanner alert for ${payload.monitor.name}`,
+    blocks: [
+      {
+        type: "header",
+        text: {
+          type: "plain_text",
+          text: `Deploy Health Scanner Alert`
+        }
+      },
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `*Monitor:* ${payload.monitor.name}\n*URL:* ${payload.monitor.url}\n*HTTP:* ${payload.result.httpStatus ?? "no response"}\n*Load:* ${payload.result.loadTimeMs ?? "n/a"} ms`
+        }
+      },
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `*Issues*\n${alertBullets}`
+        }
+      }
+    ]
   };
 }
 
-function shouldAlert(current: HealthCheckRecord, previous: HealthCheckRecord | null) {
-  if (current.status === "healthy") {
-    return previous !== null && previous.status !== "healthy";
+async function sendEmailAlert(targetEmail: string, payload: AlertPayload) {
+  const smtpHost = process.env.SMTP_HOST;
+  const smtpPort = Number(process.env.SMTP_PORT ?? "587");
+  const smtpUser = process.env.SMTP_USER;
+  const smtpPass = process.env.SMTP_PASS;
+  const from = process.env.ALERT_FROM_EMAIL || "alerts@deployhealthscanner.dev";
+
+  if (!smtpHost || !smtpUser || !smtpPass) {
+    return {
+      delivered: false,
+      reason:
+        "SMTP credentials are missing. Set SMTP_HOST, SMTP_PORT, SMTP_USER, and SMTP_PASS."
+    };
   }
 
-  if (!previous) {
-    return true;
-  }
-
-  if (previous.status === "healthy") {
-    return true;
-  }
-
-  return previous.status !== current.status;
-}
-
-async function sendEmailAlert(target: string, subject: string, text: string) {
-  const host = process.env.SMTP_HOST;
-  const port = process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : 587;
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
-  const from = process.env.ALERT_FROM_EMAIL || process.env.SMTP_FROM;
-
-  if (!host || !user || !pass || !from) {
-    return;
-  }
-
-  const transport = nodemailer.createTransport({
-    host,
-    port,
-    secure: port === 465,
+  const transporter = nodemailer.createTransport({
+    host: smtpHost,
+    port: smtpPort,
+    secure: smtpPort === 465,
     auth: {
-      user,
-      pass,
-    },
+      user: smtpUser,
+      pass: smtpPass
+    }
   });
 
-  await transport.sendMail({
+  await transporter.sendMail({
     from,
-    to: target,
-    subject,
-    text,
+    to: targetEmail,
+    subject: `Deploy Health Scanner alert: ${payload.monitor.name}`,
+    text: createEmailBody(payload)
   });
+
+  return { delivered: true };
 }
 
-async function sendSlackWebhook(target: string, markdown: string) {
-  await axios.post(
-    target,
-    {
-      text: markdown,
-    },
-    {
-      timeout: 10000,
-    },
-  );
+async function sendSlackAlert(webhookUrl: string, payload: AlertPayload) {
+  const webhook = new IncomingWebhook(webhookUrl);
+  await webhook.send(createSlackBody(payload));
+  return { delivered: true };
 }
 
-export async function dispatchAlerts(params: {
-  monitoredUrl: MonitoredUrl;
-  currentCheck: HealthCheckRecord;
-  previousCheck: HealthCheckRecord | null;
-  channels: AlertChannel[];
+export async function sendAlerts(params: {
+  monitor: MonitorRecord | MonitorWithLatest;
+  result: MonitorCheckOutcome;
+  channels: AlertChannelRecord[];
 }) {
-  if (!shouldAlert(params.currentCheck, params.previousCheck)) {
-    return;
+  if (params.result.alerts.length === 0) {
+    return [];
   }
 
-  const { subject, text, markdown } = buildMessage(
-    params.monitoredUrl,
-    params.currentCheck,
-    params.previousCheck,
-  );
+  const payload: AlertPayload = {
+    monitor: params.monitor,
+    result: params.result,
+    alerts: params.result.alerts
+  };
 
-  await Promise.all(
-    params.channels.map(async (channel) => {
-      if (!channel.enabled) {
-        return;
+  const results: Array<{ type: string; target: string; delivered: boolean; reason?: string }> = [];
+
+  for (const channel of params.channels) {
+    try {
+      if (channel.type === "email") {
+        const emailResult = await sendEmailAlert(channel.target, payload);
+        results.push({
+          type: channel.type,
+          target: channel.target,
+          delivered: emailResult.delivered,
+          reason: emailResult.reason
+        });
+      } else if (channel.type === "slack") {
+        await sendSlackAlert(channel.target, payload);
+        results.push({
+          type: channel.type,
+          target: channel.target,
+          delivered: true
+        });
       }
+    } catch (channelError) {
+      const reason =
+        channelError instanceof Error ? channelError.message : "Unknown notification error";
+      results.push({
+        type: channel.type,
+        target: channel.target,
+        delivered: false,
+        reason
+      });
+    }
+  }
 
-      try {
-        if (channel.channelType === "email") {
-          await sendEmailAlert(channel.target, subject, text);
-        }
-
-        if (channel.channelType === "slack") {
-          await sendSlackWebhook(channel.target, markdown);
-        }
-      } catch {
-        // Alert failures should not fail the health-check pipeline.
-      }
-    }),
-  );
+  return results;
 }

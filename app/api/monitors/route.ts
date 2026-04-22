@@ -1,259 +1,151 @@
-import crypto from "node:crypto";
-
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 
-import { getAccessFromCookieStore } from "@/lib/auth";
-import { query } from "@/lib/db";
-import { ensureSchema } from "@/lib/db/schema";
-import { enqueueMonitorChecks } from "@/lib/monitoring/jobs";
+import {
+  createMonitor,
+  getOrCreateUser,
+  listMonitorsForUser,
+  listRecentResults,
+  upsertAlertChannel,
+  listAlertChannelsForUser,
+  recordCheckResult
+} from "@/lib/database";
+import { runMonitorCheck } from "@/lib/monitoring";
+import { sendAlerts } from "@/lib/notifications";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-const addMonitorSchema = z.object({
-  name: z.string().trim().min(2).max(120),
-  url: z.string().trim().url(),
-  alertEmail: z.string().trim().email().optional().or(z.literal("")),
-  slackChannel: z.string().trim().max(120).optional().or(z.literal("")),
-});
-
-const deleteMonitorSchema = z.object({
-  id: z.string().trim().min(10),
-});
-
-interface MonitorRow {
-  id: string;
-  name: string;
-  url: string;
-  active: boolean;
-  created_at: string;
-  updated_at: string;
-  checked_at: string | null;
-  http_status: number | null;
-  ssl_expiry: string | null;
-  seo_title: string | null;
-  seo_description: string | null;
-  load_ms: number | null;
-  ok: boolean | null;
-  failure_reason: string | null;
-}
-
-interface HistoryRow {
-  monitor_id: string;
-  checked_at: string;
-  load_ms: number | null;
-}
-
-function parseRequestAccess(request: NextRequest) {
-  const access = getAccessFromCookieStore(request.cookies);
-  if (!access) {
-    return NextResponse.json(
-      {
-        error: "Paid access is required. Complete checkout, then unlock from the dashboard.",
-      },
-      { status: 402 }
-    );
+function normalizeUrl(rawUrl: string) {
+  const value = rawUrl.trim();
+  if (value.startsWith("http://") || value.startsWith("https://")) {
+    return value;
   }
 
-  return access;
+  return `https://${value}`;
 }
 
-export async function GET(request: NextRequest): Promise<NextResponse> {
-  const access = parseRequestAccess(request);
-  if (access instanceof NextResponse) {
-    return access;
+function getEmailFromRequest(request: NextRequest) {
+  const url = new URL(request.url);
+  const fromQuery = url.searchParams.get("email")?.trim().toLowerCase();
+  const fromCookie = request.cookies.get("dhs_email")?.value?.trim().toLowerCase();
+
+  return fromQuery || fromCookie || "";
+}
+
+export async function GET(request: NextRequest) {
+  const email = getEmailFromRequest(request);
+
+  if (!email) {
+    return NextResponse.json({ error: "Missing user email." }, { status: 400 });
   }
 
-  await ensureSchema();
+  const monitors = await listMonitorsForUser(email);
 
-  const monitors = await query<MonitorRow>(
-    `
-      SELECT m.id,
-             m.name,
-             m.url,
-             m.active,
-             m.created_at,
-             m.updated_at,
-             latest.checked_at,
-             latest.http_status,
-             latest.ssl_expiry,
-             latest.seo_title,
-             latest.seo_description,
-             latest.load_ms,
-             latest.ok,
-             latest.failure_reason
-      FROM monitors m
-      LEFT JOIN LATERAL (
-        SELECT mc.checked_at,
-               mc.http_status,
-               mc.ssl_expiry,
-               mc.seo_title,
-               mc.seo_description,
-               mc.load_ms,
-               mc.ok,
-               mc.failure_reason
-        FROM monitor_checks mc
-        WHERE mc.monitor_id = m.id
-        ORDER BY mc.checked_at DESC
-        LIMIT 1
-      ) latest ON TRUE
-      WHERE m.owner_key = $1
-      ORDER BY m.created_at DESC
-    `,
-    [access.ownerKey]
+  const monitorsWithHistory = await Promise.all(
+    monitors.map(async (monitor) => {
+      const history = await listRecentResults(Number(monitor.id), 24);
+      return {
+        ...monitor,
+        id: Number(monitor.id),
+        user_id: Number(monitor.user_id),
+        check_interval_minutes: Number(monitor.check_interval_minutes),
+        ssl_days_threshold: Number(monitor.ssl_days_threshold),
+        uptime_24h:
+          monitor.uptime_24h !== null ? Number(monitor.uptime_24h) : null,
+        history: history.reverse().map((item) => ({
+          checkedAt: item.checked_at,
+          isUp: item.is_up,
+          loadTimeMs: item.load_time_ms,
+          status: item.http_status
+        }))
+      };
+    })
   );
 
-  const monitorIds = monitors.rows.map((row: MonitorRow) => row.id);
-  const historyMap = new Map<string, Array<{ checkedAt: string; loadMs: number | null }>>();
+  return NextResponse.json({ monitors: monitorsWithHistory });
+}
 
-  if (monitorIds.length > 0) {
-    const history = await query<HistoryRow>(
-      `
-        SELECT monitor_id, checked_at, load_ms
-        FROM (
-          SELECT monitor_id,
-                 checked_at,
-                 load_ms,
-                 ROW_NUMBER() OVER (PARTITION BY monitor_id ORDER BY checked_at DESC) AS row_num
-          FROM monitor_checks
-          WHERE monitor_id = ANY($1::text[])
-        ) checks
-        WHERE checks.row_num <= 20
-        ORDER BY checks.checked_at ASC
-      `,
-      [monitorIds]
-    );
+export async function POST(request: Request) {
+  const body = await request.json();
 
-    for (const row of history.rows) {
-      const existing = historyMap.get(row.monitor_id) ?? [];
-      existing.push({ checkedAt: row.checked_at, loadMs: row.load_ms });
-      historyMap.set(row.monitor_id, existing);
-    }
+  const email = (body.email || "").toString().trim().toLowerCase();
+  const urlValue = (body.url || "").toString();
+  const name = (body.name || "").toString();
+  const alertEmail = (body.alertEmail || "").toString().trim().toLowerCase();
+  const slackWebhook = (body.slackWebhook || "").toString().trim();
+  const sslDaysThreshold = Number(body.sslDaysThreshold || 14);
+
+  if (!email) {
+    return NextResponse.json({ error: "Email is required." }, { status: 400 });
   }
+
+  if (!urlValue || !name) {
+    return NextResponse.json(
+      { error: "Monitor name and URL are required." },
+      { status: 400 }
+    );
+  }
+
+  let normalizedUrl = "";
+  try {
+    normalizedUrl = normalizeUrl(urlValue);
+    new URL(normalizedUrl);
+  } catch {
+    return NextResponse.json({ error: "Invalid URL format." }, { status: 400 });
+  }
+
+  const user = await getOrCreateUser(email);
+
+  const monitor = await createMonitor({
+    userId: Number(user.id),
+    name,
+    url: normalizedUrl,
+    sslDaysThreshold: Number.isFinite(sslDaysThreshold) ? sslDaysThreshold : 14
+  });
+
+  const notificationEmail = alertEmail || email;
+  await upsertAlertChannel({
+    userId: Number(user.id),
+    type: "email",
+    target: notificationEmail
+  });
+
+  if (slackWebhook) {
+    await upsertAlertChannel({
+      userId: Number(user.id),
+      type: "slack",
+      target: slackWebhook
+    });
+  }
+
+  const initialResult = await runMonitorCheck(monitor);
+
+  await recordCheckResult({
+    monitorId: Number(monitor.id),
+    httpStatus: initialResult.httpStatus,
+    isUp: initialResult.isUp,
+    sslValid: initialResult.sslValid,
+    sslDaysRemaining: initialResult.sslDaysRemaining,
+    seoTitle: initialResult.seoTitle,
+    seoDescription: initialResult.seoDescription,
+    loadTimeMs: initialResult.loadTimeMs,
+    error: initialResult.error
+  });
+
+  const channels = await listAlertChannelsForUser(Number(user.id));
+  const delivered = await sendAlerts({
+    monitor,
+    result: initialResult,
+    channels
+  });
 
   return NextResponse.json({
-    monitors: monitors.rows.map((row: MonitorRow) => ({
-      id: row.id,
-      name: row.name,
-      url: row.url,
-      active: row.active,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-      latestCheck: row.checked_at
-        ? {
-            checkedAt: row.checked_at,
-            httpStatus: row.http_status,
-            sslExpiry: row.ssl_expiry,
-            seoTitle: row.seo_title,
-            seoDescription: row.seo_description,
-            loadMs: row.load_ms,
-            ok: row.ok,
-            failureReason: row.failure_reason,
-          }
-        : null,
-      history: historyMap.get(row.id) ?? [],
-    })),
-  });
-}
-
-export async function POST(request: NextRequest): Promise<NextResponse> {
-  const access = parseRequestAccess(request);
-  if (access instanceof NextResponse) {
-    return access;
-  }
-
-  const body = await request.json().catch(() => null);
-  const parsed = addMonitorSchema.safeParse(body);
-
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid monitor payload.", details: parsed.error.flatten() }, { status: 400 });
-  }
-
-  const url = new URL(parsed.data.url);
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    return NextResponse.json({ error: "Only HTTP and HTTPS URLs are supported." }, { status: 400 });
-  }
-
-  await ensureSchema();
-
-  const monitorCount = await query<{ count: number }>(
-    `SELECT COUNT(*)::int AS count FROM monitors WHERE owner_key = $1`,
-    [access.ownerKey]
-  );
-
-  const currentCount = Number(monitorCount.rows[0]?.count ?? 0);
-  if (access.plan === "starter" && currentCount >= 10) {
-    return NextResponse.json(
-      {
-        error: "Starter plan supports up to 10 monitors. Upgrade to Unlimited for additional URLs.",
-      },
-      { status: 403 }
-    );
-  }
-
-  const monitorId = crypto.randomUUID();
-  await query(
-    `
-      INSERT INTO monitors (id, owner_key, name, url)
-      VALUES ($1, $2, $3, $4)
-    `,
-    [monitorId, access.ownerKey, parsed.data.name, parsed.data.url]
-  );
-
-  if (parsed.data.alertEmail || parsed.data.slackChannel) {
-    await query(
-      `
-        INSERT INTO alert_channels (owner_key, email, slack_channel)
-        VALUES ($1, NULLIF($2, ''), NULLIF($3, ''))
-        ON CONFLICT (owner_key)
-        DO UPDATE SET
-          email = COALESCE(NULLIF(EXCLUDED.email, ''), alert_channels.email),
-          slack_channel = COALESCE(NULLIF(EXCLUDED.slack_channel, ''), alert_channels.slack_channel),
-          updated_at = NOW()
-      `,
-      [access.ownerKey, parsed.data.alertEmail ?? "", parsed.data.slackChannel ?? ""]
-    );
-  }
-
-  await enqueueMonitorChecks(monitorId).catch(() => {
-    // Queue errors should not block monitor creation.
-  });
-
-  return NextResponse.json(
-    {
-      id: monitorId,
-      name: parsed.data.name,
-      url: parsed.data.url,
+    monitor: {
+      ...monitor,
+      id: Number(monitor.id),
+      user_id: Number(monitor.user_id)
     },
-    { status: 201 }
-  );
-}
-
-export async function DELETE(request: NextRequest): Promise<NextResponse> {
-  const access = parseRequestAccess(request);
-  if (access instanceof NextResponse) {
-    return access;
-  }
-
-  const body = await request.json().catch(() => null);
-  const parsed = deleteMonitorSchema.safeParse(body);
-
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Monitor id is required." }, { status: 400 });
-  }
-
-  await ensureSchema();
-  const deleted = await query(
-    `
-      DELETE FROM monitors
-      WHERE id = $1 AND owner_key = $2
-    `,
-    [parsed.data.id, access.ownerKey]
-  );
-
-  if (deleted.rowCount === 0) {
-    return NextResponse.json({ error: "Monitor not found." }, { status: 404 });
-  }
-
-  return NextResponse.json({ success: true });
+    initialResult,
+    notifications: delivered
+  });
 }

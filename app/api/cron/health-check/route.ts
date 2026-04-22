@@ -1,108 +1,97 @@
 import { NextResponse } from "next/server";
 
 import {
-  getLatestCheckForUrl,
-  insertHealthCheck,
-  listActiveMonitoredUrls,
-  listAlertChannels,
+  listActiveMonitors,
+  listAlertChannelsForUser,
+  listUserEmailsByIds,
+  recordCheckResult
 } from "@/lib/database";
-import { runHealthCheck } from "@/lib/health-checker";
-import { dispatchAlerts } from "@/lib/notifications";
+import { runMonitorCheck } from "@/lib/monitoring";
+import { sendAlerts } from "@/lib/notifications";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const BATCH_SIZE = 5;
+function isCronAuthorized(request: Request) {
+  const expected = process.env.CRON_SECRET;
 
-function isAuthorizedCron(request: Request) {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) {
+  if (!expected) {
     return true;
   }
 
-  const authHeader = request.headers.get("authorization") || "";
-  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
-  return token === secret;
-}
+  const headerToken = request.headers.get("x-cron-key");
+  const authorization = request.headers.get("authorization") || "";
+  const bearer = authorization.startsWith("Bearer ")
+    ? authorization.replace("Bearer ", "")
+    : null;
 
-async function processUrl(url: Awaited<ReturnType<typeof listActiveMonitoredUrls>>[number]) {
-  const previousCheck = await getLatestCheckForUrl(url.id);
-  const checkResult = await runHealthCheck(url.url);
-
-  const currentCheck = await insertHealthCheck({
-    monitoredUrlId: url.id,
-    status: checkResult.status,
-    httpStatus: checkResult.httpStatus,
-    responseTimeMs: checkResult.responseTimeMs,
-    sslValid: checkResult.sslValid,
-    sslExpiresAt: checkResult.sslExpiresAt,
-    sslDaysRemaining: checkResult.sslDaysRemaining,
-    seoTitle: checkResult.seoTitle,
-    seoDescription: checkResult.seoDescription,
-    seoOgImage: checkResult.seoOgImage,
-    seoCanonical: checkResult.seoCanonical,
-    pageSpeedScore: checkResult.pageSpeedScore,
-    pageSpeedCategory: checkResult.pageSpeedCategory,
-    error: checkResult.error,
-  });
-
-  const channels = await listAlertChannels(url.id);
-  await dispatchAlerts({
-    monitoredUrl: url,
-    currentCheck,
-    previousCheck,
-    channels,
-  });
-
-  return {
-    urlId: url.id,
-    status: currentCheck.status,
-  };
-}
-
-async function runCron(request: Request) {
-  if (!isAuthorizedCron(request)) {
-    return NextResponse.json({ error: "Unauthorized cron request." }, { status: 401 });
-  }
-
-  try {
-    const activeUrls = await listActiveMonitoredUrls();
-    const results: Array<{ urlId: number; status: "healthy" | "warning" | "critical" }> = [];
-
-    for (let index = 0; index < activeUrls.length; index += BATCH_SIZE) {
-      const batch = activeUrls.slice(index, index + BATCH_SIZE);
-      const batchResults = await Promise.all(batch.map((item) => processUrl(item)));
-      results.push(...batchResults);
-    }
-
-    const summary = results.reduce(
-      (acc, item) => {
-        acc.total += 1;
-        acc[item.status] += 1;
-        return acc;
-      },
-      {
-        total: 0,
-        healthy: 0,
-        warning: 0,
-        critical: 0,
-      },
-    );
-
-    return NextResponse.json({
-      ok: true,
-      ...summary,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Cron execution failed.";
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
+  return expected === headerToken || expected === bearer;
 }
 
 export async function GET(request: Request) {
-  return runCron(request);
-}
+  if (!isCronAuthorized(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
-export async function POST(request: Request) {
-  return runCron(request);
+  const monitors = await listActiveMonitors();
+
+  const userIds = [...new Set(monitors.map((monitor) => Number(monitor.user_id)))];
+  const users = await listUserEmailsByIds(userIds);
+  const userEmailMap = new Map(users.map((user) => [Number(user.id), user.email]));
+
+  const channelCache = new Map<number, Awaited<ReturnType<typeof listAlertChannelsForUser>>>();
+
+  let checkedCount = 0;
+  let alertCount = 0;
+  const failures: Array<{ monitorId: number; message: string }> = [];
+
+  for (const monitor of monitors) {
+    try {
+      const result = await runMonitorCheck(monitor);
+
+      await recordCheckResult({
+        monitorId: Number(monitor.id),
+        httpStatus: result.httpStatus,
+        isUp: result.isUp,
+        sslValid: result.sslValid,
+        sslDaysRemaining: result.sslDaysRemaining,
+        seoTitle: result.seoTitle,
+        seoDescription: result.seoDescription,
+        loadTimeMs: result.loadTimeMs,
+        error: result.error
+      });
+
+      checkedCount += 1;
+
+      if (result.alerts.length > 0) {
+        const userId = Number(monitor.user_id);
+        if (!channelCache.has(userId)) {
+          channelCache.set(userId, await listAlertChannelsForUser(userId));
+        }
+
+        const channels = channelCache.get(userId) || [];
+
+        await sendAlerts({
+          monitor,
+          result,
+          channels
+        });
+
+        alertCount += 1;
+      }
+    } catch (error) {
+      failures.push({
+        monitorId: Number(monitor.id),
+        message: error instanceof Error ? error.message : "Unknown cron failure"
+      });
+    }
+  }
+
+  return NextResponse.json({
+    checkedCount,
+    alertCount,
+    monitorCount: monitors.length,
+    userCount: userEmailMap.size,
+    failures
+  });
 }

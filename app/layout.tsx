@@ -1,63 +1,73 @@
 import type { Metadata } from "next";
-import { Space_Grotesk, Source_Sans_3 } from "next/font/google";
+import { JetBrains_Mono, Space_Grotesk, Geist } from "next/font/google";
 
 import "@/app/globals.css";
+import { cn } from "@/lib/utils";
 
-const display = Space_Grotesk({
+const geist = Geist({subsets:['latin'],variable:'--font-sans'});
+
+const spaceGrotesk = Space_Grotesk({
   subsets: ["latin"],
-  variable: "--font-display",
+  variable: "--font-space-grotesk",
+  display: "swap"
 });
 
-const body = Source_Sans_3({
+const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
-  variable: "--font-body",
+  variable: "--font-jetbrains-mono",
+  display: "swap"
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://deployhealthscanner.com"),
+  metadataBase: new URL("https://deployhealthscanner.dev"),
   title: {
     default: "Deploy Health Scanner",
-    template: "%s | Deploy Health Scanner",
+    template: "%s | Deploy Health Scanner"
   },
   description:
-    "Continuous uptime, SSL expiry, SEO metadata and page-speed checks for every deployed project. Get alerted by email or Slack before customers notice.",
+    "Continuous uptime, SSL expiry, SEO, and load-speed checks for every deployed project. Built for indie founders managing 5-50 production URLs.",
   keywords: [
-    "deployment monitoring",
-    "uptime and SSL monitoring",
-    "SEO monitoring",
-    "page speed monitoring",
-    "vercel monitoring",
-    "netlify monitoring",
+    "website monitoring",
+    "uptime monitoring",
+    "ssl monitoring",
+    "seo monitoring",
+    "performance monitoring",
+    "saas monitoring"
   ],
   openGraph: {
     title: "Deploy Health Scanner",
     description:
-      "Continuous uptime + SSL + SEO + page-speed monitoring for indie founders shipping on Vercel and Netlify.",
-    url: "https://deployhealthscanner.com",
-    siteName: "Deploy Health Scanner",
-    locale: "en_US",
+      "Monitor uptime, SSL, SEO, and page speed in one dashboard with 5-minute checks and instant alerts.",
     type: "website",
+    url: "https://deployhealthscanner.dev",
+    siteName: "Deploy Health Scanner"
   },
   twitter: {
     card: "summary_large_image",
     title: "Deploy Health Scanner",
     description:
-      "Monitor your projects every 5 minutes with status, SSL, SEO and performance checks plus Slack and email alerts.",
+      "Continuous health checks for your deployed projects: status, SSL, SEO, and speed."
   },
-  robots: {
-    index: true,
-    follow: true,
-  },
+  alternates: {
+    canonical: "/"
+  }
 };
 
 export default function RootLayout({
-  children,
+  children
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className={`${display.variable} ${body.variable} bg-[#0d1117] antialiased`}>{children}</body>
+    <html lang="en" suppressHydrationWarning className={cn("font-sans", geist.variable)}>
+      <body
+        className={`${spaceGrotesk.variable} ${jetbrainsMono.variable} bg-[#0d1117] text-slate-100 antialiased`}
+        style={{
+          fontFamily: "var(--font-space-grotesk), ui-sans-serif, system-ui"
+        }}
+      >
+        {children}
+      </body>
     </html>
   );
 }
